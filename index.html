@@ -87,6 +87,25 @@
       box-shadow: 0 0 28px rgba(57,224,113,.35), inset 0 1px 0 rgba(255,255,255,.32);
       animation: green-in 130ms ease-out;
     }
+    .cell.red {
+      background:
+        radial-gradient(circle at 45% 35%, rgba(255,255,255,.2), transparent 38%),
+        var(--danger);
+      border-color: #ff9297;
+      box-shadow: 0 0 28px rgba(255,92,100,.3), inset 0 1px 0 rgba(255,255,255,.28);
+      animation: green-in 130ms ease-out;
+    }
+    .cell.penalty::after {
+      content: "−1";
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-weight: 1000;
+      font-size: clamp(28px, 10vw, 56px);
+      color: white;
+      animation: pop .28s ease-out both;
+    }
     .cell.hit::after {
       content: "+1";
       position: absolute;
@@ -157,7 +176,7 @@
         <div class="result">Final score</div>
         <div class="final" id="finalScore">0</div>
         <h1 id="title">Mook.</h1>
-        <p class="subtitle" id="subtitle">Tap the green tile before the two-second timer runs out. Four misses and you're done.</p>
+        <p class="subtitle" id="subtitle">Catch one green tile every second. After 10 seconds, red traps begin appearing. Four mistakes and you're done.</p>
         <button class="primary" id="start">Start game</button>
       </div>
     </section>
@@ -185,14 +204,22 @@
       return button;
     });
 
+    const BEAT_MS = 1000;
+    const RED_LIFETIME_MS = 2000;
+    const RED_START_MS = 10000;
+    const RED_CHANCE = .25;
     let active = -1;
     let score = 0;
     let misses = 0;
     let playing = false;
     let roundStarted = 0;
-    let roundLength = 2000;
+    let gameStartedAt = 0;
     let raf = 0;
+    let beatTimer = 0;
     let lastActive = -1;
+    let graceCell = -1;
+    let graceUntil = 0;
+    let redCells = new Map();
     let audio;
 
     function tone(frequency, duration, volume = .04) {
@@ -210,8 +237,8 @@
     }
 
     function chooseCell() {
-      let next;
-      do next = Math.floor(Math.random() * 8); while (next === lastActive);
+      const available = cells.map((_, i) => i).filter(i => !redCells.has(i) && i !== lastActive);
+      const next = available[Math.floor(Math.random() * available.length)];
       lastActive = active = next;
       cells.forEach((cell, i) => cell.classList.toggle('active', i === active));
       roundStarted = performance.now();
@@ -220,62 +247,110 @@
       raf = requestAnimationFrame(tick);
     }
 
+    function spawnRed(preferredIndex) {
+      if (!playing) return -1;
+      const available = cells.map((_, i) => i).filter(i => i !== active && !redCells.has(i));
+      if (!available.length) return -1;
+      const index = available.includes(preferredIndex)
+        ? preferredIndex
+        : available[Math.floor(Math.random() * available.length)];
+      cells[index].classList.add('red');
+      const expiry = setTimeout(() => clearRed(index), RED_LIFETIME_MS);
+      redCells.set(index, expiry);
+      return index;
+    }
+
+    function clearRed(index) {
+      const expiry = redCells.get(index);
+      if (expiry) clearTimeout(expiry);
+      redCells.delete(index);
+      cells[index].classList.remove('red');
+    }
+
+    function nextBeat() {
+      if (!playing) return;
+      if (active !== -1) losePoint('miss');
+      if (!playing) return;
+      chooseCell();
+      if (performance.now() - gameStartedAt >= RED_START_MS && Math.random() < RED_CHANCE) spawnRed();
+    }
+
     function tick(now) {
       if (!playing) return;
-      const remaining = Math.max(0, 1 - (now - roundStarted) / roundLength);
+      const remaining = Math.max(0, 1 - (now - roundStarted) / BEAT_MS);
       timerEl.style.transform = `scaleX(${remaining})`;
       timerEl.classList.toggle('danger', remaining < .28);
-      if (remaining <= 0) return miss();
+      if (remaining <= 0) return;
       raf = requestAnimationFrame(tick);
     }
 
     function tap(index) {
       if (!playing) return;
-      if (index !== active) {
-        cells[index].classList.remove('wrong');
-        void cells[index].offsetWidth;
-        cells[index].classList.add('wrong');
-        tone(130, .08, .02);
+      if (redCells.has(index)) {
+        clearRed(index);
+        cells[index].classList.add('penalty');
+        setTimeout(() => cells[index].classList.remove('penalty'), 280);
+        losePoint('red');
         return;
       }
-      cancelAnimationFrame(raf);
+      if (index !== active) {
+        if (index === graceCell && performance.now() <= graceUntil) return;
+        cells[index].classList.remove('penalty');
+        void cells[index].offsetWidth;
+        cells[index].classList.add('penalty');
+        setTimeout(() => cells[index].classList.remove('penalty'), 280);
+        losePoint('empty');
+        return;
+      }
       cells[index].classList.remove('active');
       cells[index].classList.add('hit');
       setTimeout(() => cells[index].classList.remove('hit'), 240);
+      active = -1;
       score += 1;
       scoreEl.textContent = score;
       tone(660 + Math.min(score, 12) * 18, .09);
       navigator.vibrate?.(18);
-      // Starts at 2 seconds, then eases down to a 0.85 second floor.
-      roundLength = Math.max(850, 2000 - score * 32);
-      setTimeout(() => playing && chooseCell(), 90);
     }
 
-    function miss() {
-      cancelAnimationFrame(raf);
-      cells.forEach(cell => cell.classList.remove('active'));
-      active = -1;
+    function losePoint(reason = 'miss') {
+      if (reason === 'miss') {
+        graceCell = active;
+        graceUntil = performance.now() + 300;
+        cells[active]?.classList.remove('active');
+        active = -1;
+      }
       misses += 1;
       lifeEls[misses - 1]?.classList.add('lost');
-      tone(110, .22, .055);
+      tone(reason === 'red' ? 90 : 110, .22, .055);
       navigator.vibrate?.([70, 30, 70]);
-      timerEl.style.transform = 'scaleX(0)';
-      if (misses >= 4) return gameOver();
-      setTimeout(() => playing && chooseCell(), 400);
+      if (misses >= 4) gameOver();
     }
 
     function startGame() {
-      score = 0; misses = 0; roundLength = 2000; playing = true;
+      clearInterval(beatTimer);
+      redCells.forEach((_, index) => clearRed(index));
+      cells.forEach(cell => cell.className = 'cell');
+      score = 0; misses = 0; active = -1; graceCell = -1; graceUntil = 0; playing = true;
       scoreEl.textContent = '0';
       lifeEls.forEach(life => life.classList.remove('lost'));
       card.classList.remove('game-over');
       overlay.classList.add('hidden');
       tone(420, .08);
-      setTimeout(chooseCell, 280);
+      gameStartedAt = performance.now();
+      setTimeout(() => {
+        if (!playing) return;
+        chooseCell();
+        beatTimer = setInterval(nextBeat, BEAT_MS);
+      }, 280);
     }
 
     function gameOver() {
       playing = false;
+      clearInterval(beatTimer);
+      cancelAnimationFrame(raf);
+      cells[active]?.classList.remove('active');
+      active = -1;
+      redCells.forEach((_, index) => clearRed(index));
       finalScoreEl.textContent = score;
       titleEl.textContent = score >= 20 ? 'Sharp.' : score >= 10 ? 'Not bad.' : 'Game over.';
       subtitleEl.textContent = score ? `You caught ${score} green tile${score === 1 ? '' : 's'}. Go again.` : 'The green tile got away. Go again.';
@@ -287,15 +362,19 @@
     startBtn.addEventListener('click', startGame);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && playing) {
+        clearInterval(beatTimer);
         cancelAnimationFrame(raf);
-        roundStarted = performance.now();
       } else if (!document.hidden && playing) {
         roundStarted = performance.now();
         raf = requestAnimationFrame(tick);
+        beatTimer = setInterval(nextBeat, BEAT_MS);
       }
     });
 
-    window.__mook = { startGame, miss, tap, getState: () => ({ active, score, misses, playing, roundLength }) };
+    window.__mook = {
+      startGame, tap, spawnRed, losePoint,
+      getState: () => ({ active, score, misses, playing, red: [...redCells.keys()], elapsed: performance.now() - gameStartedAt })
+    };
   </script>
 </body>
 </html>
