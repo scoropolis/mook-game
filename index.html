@@ -76,6 +76,7 @@
       cursor: pointer;
       position: relative;
       overflow: hidden;
+      touch-action: none;
       transition: transform 70ms ease, background 120ms ease, border-color 120ms ease;
     }
     .cell:active { transform: scale(.98); }
@@ -94,6 +95,24 @@
       border-color: #ff9297;
       box-shadow: 0 0 28px rgba(255,92,100,.3), inset 0 1px 0 rgba(255,255,255,.28);
       animation: green-in 130ms ease-out;
+    }
+    .cell.blue {
+      background:
+        radial-gradient(circle at 45% 35%, rgba(255,255,255,.24), transparent 38%),
+        #48b9f2;
+      border-color: #a8e2ff;
+      box-shadow: 0 0 28px rgba(72,185,242,.34), inset 0 1px 0 rgba(255,255,255,.3);
+      animation: green-in 130ms ease-out;
+    }
+    .cell.blue::before {
+      content: attr(data-arrow);
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: white;
+      font: 1000 clamp(48px, 18vw, 84px)/1 system-ui, sans-serif;
+      text-shadow: 0 3px 14px rgba(0,70,110,.28);
     }
     .cell.penalty::after {
       content: "−1";
@@ -176,7 +195,7 @@
         <div class="result">Final score</div>
         <div class="final" id="finalScore">0</div>
         <h1 id="title">Mook.</h1>
-        <p class="subtitle" id="subtitle">Catch one green tile every second. Red traps begin at 10 seconds. At 20, the pace—or the greens—can double.</p>
+        <p class="subtitle" id="subtitle">Catch green. Avoid red. After 30 seconds, swipe blue arrows in their direction. Four mistakes end the run.</p>
         <button class="primary" id="start">Start game</button>
       </div>
     </section>
@@ -199,7 +218,7 @@
       button.className = 'cell';
       button.type = 'button';
       button.setAttribute('aria-label', `Tile ${index + 1}`);
-      button.addEventListener('pointerdown', () => tap(index));
+      wireCellGesture(button, index);
       board.append(button);
       return button;
     });
@@ -209,7 +228,11 @@
     const RED_LIFETIME_MS = 2000;
     const RED_START_MS = 10000;
     const CHAOS_START_MS = 20000;
+    const BLUE_START_MS = 30000;
+    const BLUE_LIFETIME_MS = 2000;
     const RED_CHANCE = .25;
+    const BLUE_CHANCE = .25;
+    const SWIPE_THRESHOLD = 34;
     let activeGreens = new Set();
     let score = 0;
     let misses = 0;
@@ -223,6 +246,9 @@
     let graceCells = new Set();
     let graceUntil = 0;
     let redCells = new Map();
+    let blueCells = new Map();
+    let blueGraceCells = new Set();
+    let blueGraceUntil = 0;
     let audio;
 
     function tone(frequency, duration, volume = .04) {
@@ -240,8 +266,8 @@
     }
 
     function chooseGreens(count) {
-      let available = cells.map((_, i) => i).filter(i => !redCells.has(i) && !lastGreens.has(i));
-      if (available.length < count) available = cells.map((_, i) => i).filter(i => !redCells.has(i));
+      let available = cells.map((_, i) => i).filter(i => !redCells.has(i) && !blueCells.has(i) && !lastGreens.has(i));
+      if (available.length < count) available = cells.map((_, i) => i).filter(i => !redCells.has(i) && !blueCells.has(i));
       activeGreens.clear();
       while (activeGreens.size < count && available.length) {
         const pick = Math.floor(Math.random() * available.length);
@@ -257,7 +283,7 @@
 
     function spawnRed(preferredIndex) {
       if (!playing) return -1;
-      const available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i));
+      const available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i));
       if (!available.length) return -1;
       const index = available.includes(preferredIndex)
         ? preferredIndex
@@ -273,6 +299,90 @@
       if (expiry) clearTimeout(expiry);
       redCells.delete(index);
       cells[index].classList.remove('red');
+    }
+
+    function spawnBlue(preferredIndex, preferredDirection) {
+      if (!playing) return -1;
+      const directions = ['up', 'right', 'down', 'left'];
+      const arrows = { up: '↑', right: '→', down: '↓', left: '←' };
+      const available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i));
+      if (!available.length) return -1;
+      const index = available.includes(preferredIndex)
+        ? preferredIndex
+        : available[Math.floor(Math.random() * available.length)];
+      const direction = directions.includes(preferredDirection)
+        ? preferredDirection
+        : directions[Math.floor(Math.random() * directions.length)];
+      cells[index].dataset.arrow = arrows[direction];
+      cells[index].classList.add('blue');
+      const expiry = setTimeout(() => expireBlue(index), BLUE_LIFETIME_MS);
+      blueCells.set(index, { direction, expiry });
+      return index;
+    }
+
+    function clearBlue(index) {
+      const blue = blueCells.get(index);
+      if (blue?.expiry) clearTimeout(blue.expiry);
+      blueCells.delete(index);
+      cells[index].classList.remove('blue');
+      delete cells[index].dataset.arrow;
+    }
+
+    function expireBlue(index) {
+      if (!blueCells.has(index)) return;
+      blueGraceCells = new Set([index]);
+      blueGraceUntil = performance.now() + 300;
+      clearBlue(index);
+      losePoint('blue-miss');
+    }
+
+    function resolveBlueSwipe(index, dx, dy) {
+      const blue = blueCells.get(index);
+      if (!blue) {
+        if (blueGraceCells.has(index) && performance.now() <= blueGraceUntil) return;
+        tap(index);
+        return;
+      }
+      const farEnough = Math.max(Math.abs(dx), Math.abs(dy)) >= SWIPE_THRESHOLD;
+      const direction = !farEnough ? 'tap'
+        : Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left')
+        : (dy > 0 ? 'down' : 'up');
+      const correct = direction === blue.direction;
+      clearBlue(index);
+      if (correct) {
+        cells[index].classList.add('hit');
+        setTimeout(() => cells[index].classList.remove('hit'), 240);
+        score += 1;
+        scoreEl.textContent = score;
+        tone(820, .1);
+        navigator.vibrate?.(18);
+      } else {
+        cells[index].classList.add('penalty');
+        setTimeout(() => cells[index].classList.remove('penalty'), 280);
+        losePoint('blue-wrong');
+      }
+    }
+
+    function wireCellGesture(cell, index) {
+      let gesture = null;
+      cell.addEventListener('pointerdown', event => {
+        event.preventDefault();
+        gesture = { x: event.clientX, y: event.clientY, blue: blueCells.has(index) };
+        try { cell.setPointerCapture(event.pointerId); } catch (_) {}
+      });
+      cell.addEventListener('pointerup', event => {
+        if (!gesture) return;
+        const start = gesture;
+        gesture = null;
+        const dx = event.clientX - start.x;
+        const dy = event.clientY - start.y;
+        if (start.blue || blueCells.has(index) || (blueGraceCells.has(index) && performance.now() <= blueGraceUntil)) {
+          resolveBlueSwipe(index, dx, dy);
+        } else {
+          tap(index);
+        }
+      });
+      cell.addEventListener('pointercancel', () => { gesture = null; });
     }
 
     function expireGreens() {
@@ -302,6 +412,7 @@
       }
       chooseGreens(greenCount);
       if (elapsed >= RED_START_MS && Math.random() < RED_CHANCE) spawnRed();
+      if (elapsed >= BLUE_START_MS && Math.random() < BLUE_CHANCE) spawnBlue();
       clearTimeout(cycleTimer);
       cycleTimer = setTimeout(nextCycle, roundLength);
     }
@@ -317,6 +428,10 @@
 
     function tap(index) {
       if (!playing) return;
+      if (blueCells.has(index)) {
+        resolveBlueSwipe(index, 0, 0);
+        return;
+      }
       if (redCells.has(index)) {
         clearRed(index);
         cells[index].classList.add('penalty');
@@ -354,8 +469,9 @@
     function startGame() {
       clearTimeout(cycleTimer);
       redCells.forEach((_, index) => clearRed(index));
+      blueCells.forEach((_, index) => clearBlue(index));
       cells.forEach(cell => cell.className = 'cell');
-      score = 0; misses = 0; activeGreens.clear(); graceCells.clear(); graceUntil = 0; playing = true;
+      score = 0; misses = 0; activeGreens.clear(); graceCells.clear(); graceUntil = 0; blueGraceCells.clear(); blueGraceUntil = 0; playing = true;
       scoreEl.textContent = '0';
       lifeEls.forEach(life => life.classList.remove('lost'));
       card.classList.remove('game-over');
@@ -373,6 +489,7 @@
       activeGreens.forEach(index => cells[index].classList.remove('active'));
       activeGreens.clear();
       redCells.forEach((_, index) => clearRed(index));
+      blueCells.forEach((_, index) => clearBlue(index));
       finalScoreEl.textContent = score;
       titleEl.textContent = score >= 20 ? 'Sharp.' : score >= 10 ? 'Not bad.' : 'Game over.';
       subtitleEl.textContent = score ? `You caught ${score} green tile${score === 1 ? '' : 's'}. Go again.` : 'The green tile got away. Go again.';
@@ -393,9 +510,14 @@
     });
 
     window.__mook = {
-      startGame, tap, spawnRed, losePoint, nextCycle,
+      startGame, tap, spawnRed, spawnBlue, resolveBlueSwipe, losePoint, nextCycle,
       setElapsedForTest: milliseconds => { gameStartedAt = performance.now() - milliseconds; },
-      getState: () => ({ active: [...activeGreens], score, misses, playing, red: [...redCells.keys()], elapsed: performance.now() - gameStartedAt, roundLength })
+      getState: () => ({
+        active: [...activeGreens], score, misses, playing,
+        red: [...redCells.keys()],
+        blue: [...blueCells.entries()].map(([index, value]) => ({ index, direction: value.direction })),
+        elapsed: performance.now() - gameStartedAt, roundLength
+      })
     };
   </script>
 </body>
