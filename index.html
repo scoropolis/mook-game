@@ -195,7 +195,7 @@
         <div class="result">Final score</div>
         <div class="final" id="finalScore">0</div>
         <h1 id="title">Mook.</h1>
-        <p class="subtitle" id="subtitle">Catch green. Avoid red. After 30 seconds, swipe blue arrows in their direction. Four mistakes end the run.</p>
+        <p class="subtitle" id="subtitle">Tap every green within two seconds. Avoid red. After 30 seconds, swipe blue arrows in their direction.</p>
         <button class="primary" id="start">Start game</button>
       </div>
     </section>
@@ -225,6 +225,7 @@
 
     const BASE_BEAT_MS = 1000;
     const FAST_BEAT_MS = 500;
+    const GREEN_LIFETIME_MS = 2000;
     const RED_LIFETIME_MS = 2000;
     const RED_START_MS = 10000;
     const CHAOS_START_MS = 20000;
@@ -233,7 +234,7 @@
     const RED_CHANCE = .25;
     const BLUE_CHANCE = .25;
     const SWIPE_THRESHOLD = 34;
-    let activeGreens = new Set();
+    let activeGreens = new Map();
     let score = 0;
     let misses = 0;
     let playing = false;
@@ -243,8 +244,7 @@
     let raf = 0;
     let cycleTimer = 0;
     let lastGreens = new Set();
-    let graceCells = new Set();
-    let graceUntil = 0;
+    let graceCells = new Map();
     let redCells = new Map();
     let blueCells = new Map();
     let blueGraceCells = new Set();
@@ -266,19 +266,37 @@
     }
 
     function chooseGreens(count) {
-      let available = cells.map((_, i) => i).filter(i => !redCells.has(i) && !blueCells.has(i) && !lastGreens.has(i));
-      if (available.length < count) available = cells.map((_, i) => i).filter(i => !redCells.has(i) && !blueCells.has(i));
-      activeGreens.clear();
-      while (activeGreens.size < count && available.length) {
+      let available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i) && !lastGreens.has(i));
+      if (available.length < count) available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i));
+      const spawned = new Set();
+      while (spawned.size < count && available.length) {
         const pick = Math.floor(Math.random() * available.length);
-        activeGreens.add(available.splice(pick, 1)[0]);
+        const index = available.splice(pick, 1)[0];
+        const expiry = setTimeout(() => expireGreen(index), GREEN_LIFETIME_MS);
+        activeGreens.set(index, expiry);
+        cells[index].classList.add('active');
+        spawned.add(index);
       }
-      lastGreens = new Set(activeGreens);
-      cells.forEach((cell, i) => cell.classList.toggle('active', activeGreens.has(i)));
+      lastGreens = spawned;
       roundStarted = performance.now();
       timerEl.classList.remove('danger');
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(tick);
+      return [...spawned];
+    }
+
+    function clearGreen(index) {
+      const expiry = activeGreens.get(index);
+      if (expiry) clearTimeout(expiry);
+      activeGreens.delete(index);
+      cells[index].classList.remove('active');
+    }
+
+    function expireGreen(index) {
+      if (!activeGreens.has(index)) return;
+      clearGreen(index);
+      graceCells.set(index, performance.now() + 300);
+      losePoint('miss');
     }
 
     function spawnRed(preferredIndex) {
@@ -385,22 +403,7 @@
       cell.addEventListener('pointercancel', () => { gesture = null; });
     }
 
-    function expireGreens() {
-      const expired = [...activeGreens];
-      if (!expired.length) return;
-      graceCells = new Set(expired);
-      graceUntil = performance.now() + 300;
-      expired.forEach(index => cells[index].classList.remove('active'));
-      activeGreens.clear();
-      for (const _ of expired) {
-        if (!playing) break;
-        losePoint('miss');
-      }
-    }
-
     function nextCycle() {
-      if (!playing) return;
-      expireGreens();
       if (!playing) return;
       const elapsed = performance.now() - gameStartedAt;
       let greenCount = 1;
@@ -440,7 +443,7 @@
         return;
       }
       if (!activeGreens.has(index)) {
-        if (graceCells.has(index) && performance.now() <= graceUntil) return;
+        if ((graceCells.get(index) || 0) >= performance.now()) return;
         cells[index].classList.remove('penalty');
         void cells[index].offsetWidth;
         cells[index].classList.add('penalty');
@@ -448,8 +451,7 @@
         losePoint('empty');
         return;
       }
-      activeGreens.delete(index);
-      cells[index].classList.remove('active');
+      clearGreen(index);
       cells[index].classList.add('hit');
       setTimeout(() => cells[index].classList.remove('hit'), 240);
       score += 1;
@@ -468,10 +470,11 @@
 
     function startGame() {
       clearTimeout(cycleTimer);
+      activeGreens.forEach((_, index) => clearGreen(index));
       redCells.forEach((_, index) => clearRed(index));
       blueCells.forEach((_, index) => clearBlue(index));
       cells.forEach(cell => cell.className = 'cell');
-      score = 0; misses = 0; activeGreens.clear(); graceCells.clear(); graceUntil = 0; blueGraceCells.clear(); blueGraceUntil = 0; playing = true;
+      score = 0; misses = 0; graceCells.clear(); blueGraceCells.clear(); blueGraceUntil = 0; playing = true;
       scoreEl.textContent = '0';
       lifeEls.forEach(life => life.classList.remove('lost'));
       card.classList.remove('game-over');
@@ -486,8 +489,7 @@
       playing = false;
       clearTimeout(cycleTimer);
       cancelAnimationFrame(raf);
-      activeGreens.forEach(index => cells[index].classList.remove('active'));
-      activeGreens.clear();
+      activeGreens.forEach((_, index) => clearGreen(index));
       redCells.forEach((_, index) => clearRed(index));
       blueCells.forEach((_, index) => clearBlue(index));
       finalScoreEl.textContent = score;
@@ -503,17 +505,20 @@
       if (document.hidden && playing) {
         clearTimeout(cycleTimer);
         cancelAnimationFrame(raf);
+        activeGreens.forEach((_, index) => clearGreen(index));
+        redCells.forEach((_, index) => clearRed(index));
+        blueCells.forEach((_, index) => clearBlue(index));
       } else if (!document.hidden && playing) {
-        expireGreens();
-        if (playing) nextCycle();
+        nextCycle();
       }
     });
 
     window.__mook = {
-      startGame, tap, spawnRed, spawnBlue, resolveBlueSwipe, losePoint, nextCycle,
+      startGame, tap, spawnRed, spawnBlue, spawnGreens: chooseGreens, resolveBlueSwipe, losePoint, nextCycle,
+      pauseSpawnsForTest: () => clearTimeout(cycleTimer),
       setElapsedForTest: milliseconds => { gameStartedAt = performance.now() - milliseconds; },
       getState: () => ({
-        active: [...activeGreens], score, misses, playing,
+        active: [...activeGreens.keys()], score, misses, playing,
         red: [...redCells.keys()],
         blue: [...blueCells.entries()].map(([index, value]) => ({ index, direction: value.direction })),
         elapsed: performance.now() - gameStartedAt, roundLength
