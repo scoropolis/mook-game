@@ -17,6 +17,7 @@
       --green: #39e071;
       --green-hot: #8bffad;
       --danger: #ff5c64;
+      --gold: #ffd45a;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { height: 100%; margin: 0; overflow: hidden; background: var(--void); }
@@ -33,7 +34,7 @@
       min-height: 560px;
       margin: 0 auto;
       display: grid;
-      grid-template-rows: auto auto 1fr;
+      grid-template-rows: auto auto auto 1fr;
       background:
         radial-gradient(circle at 50% -10%, rgba(57,224,113,.12), transparent 34%),
         var(--void);
@@ -58,6 +59,14 @@
     .timer-shell { height: 5px; margin: 0 18px 14px; background: #1a2225; overflow: hidden; border-radius: 99px; }
     .timer { height: 100%; width: 100%; transform-origin: left; background: var(--green); box-shadow: 0 0 16px rgba(57,224,113,.7); }
     .timer.danger { background: var(--danger); box-shadow: 0 0 16px rgba(255,92,100,.65); }
+    .combo-strip {
+      height: 24px; margin: -5px 18px 8px; display: flex; align-items: center;
+      justify-content: space-between; color: #768186; font-size: 10px; font-weight: 950;
+      letter-spacing: .12em; text-transform: uppercase;
+    }
+    .combo-value { color: var(--ink); transition: transform .16s ease, color .16s ease; }
+    .combo-value.hot { color: var(--gold); transform: scale(1.12); text-shadow: 0 0 14px rgba(255,212,90,.35); }
+    .multiplier { color: var(--green); font-size: 13px; }
     .board {
       min-height: 0;
       display: grid;
@@ -218,14 +227,16 @@
       animation: pop .28s ease-out both;
     }
     .cell.hit::after {
-      content: "+1";
+      content: attr(data-feedback);
       position: absolute;
       inset: 0;
       display: grid;
       place-items: center;
       font-weight: 1000;
-      font-size: clamp(28px, 10vw, 56px);
+      font-size: clamp(16px, 5.4vw, 27px);
+      letter-spacing: .02em;
       color: white;
+      text-shadow: 0 2px 8px rgba(0,0,0,.28);
       animation: pop .24s ease-out both;
     }
     .cell.wrong { animation: wrong .18s linear; }
@@ -247,7 +258,13 @@
       visibility: visible;
       animation: checkpoint-in 1.55s ease both;
     }
-    .checkpoint-copy { text-align: center; }
+    .checkpoint-copy { text-align: center; position: relative; }
+    .checkpoint-copy::before, .checkpoint-copy::after {
+      content: "✦"; position: absolute; color: var(--gold); font-size: 24px;
+      animation: sparkle 1s ease both;
+    }
+    .checkpoint-copy::before { left: 2%; top: -12px; transform: rotate(-15deg); }
+    .checkpoint-copy::after { right: 3%; bottom: -18px; transform: rotate(18deg); animation-delay: .12s; }
     .checkpoint-kicker { color: var(--green); font-size: 13px; font-weight: 950; letter-spacing: .22em; text-transform: uppercase; }
     .checkpoint-title { margin: 10px 0 8px; font-size: clamp(46px, 16vw, 76px); line-height: .9; letter-spacing: -.06em; }
     .checkpoint-subtitle { color: #b3bcb7; font-size: 16px; }
@@ -282,8 +299,15 @@
     .primary:active { transform: translateY(1px) scale(.99); }
     .result { display: none; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .15em; font-weight: 800; margin-bottom: 10px; }
     .final { display: none; font-size: 68px; font-weight: 1000; letter-spacing: -.06em; margin-bottom: 8px; }
+    .run-stats { display: none; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 18px 0; }
+    .run-stat { padding: 11px 6px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.025); }
+    .run-stat b { display: block; color: var(--ink); font-size: 20px; }
+    .run-stat small { color: var(--muted); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
+    .secondary { display: none; width: 100%; margin-top: 10px; min-height: 46px; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); background: #11171a; font-weight: 850; cursor: pointer; }
     .game-over .mark { background: var(--danger); box-shadow: 0 0 50px rgba(255,92,100,.2); }
     .game-over .result, .game-over .final { display: block; }
+    .game-over .run-stats { display: grid; }
+    .game-over .secondary { display: block; }
     .game-over h1 { font-size: 42px; letter-spacing: -.04em; }
     @keyframes green-in { from { transform: scale(.94); filter: brightness(1.4); } to { transform: scale(1); } }
     @keyframes pop { from { opacity: 1; transform: scale(.65); } to { opacity: 0; transform: scale(1.25) translateY(-10px); } }
@@ -299,6 +323,7 @@
     @keyframes hold-complete { to { opacity: 0; transform: scale(.05); filter: brightness(1.6); } }
     @keyframes rock-hit { 0%,100% { transform: translate(0); } 30% { transform: translate(-7px,3px) rotate(-2deg); } 70% { transform: translate(6px,-2px) rotate(2deg); } }
     @keyframes rock-break { 35% { transform: scale(1.08); filter: brightness(1.35); } to { opacity: 0; transform: scale(.18) rotate(8deg); filter: contrast(1.5); } }
+    @keyframes sparkle { 0% { opacity: 0; scale: .2; } 45% { opacity: 1; scale: 1.35; } 100% { opacity: 0; scale: .7; } }
     @media (prefers-reduced-motion: reduce) { *, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
   </style>
 </head>
@@ -312,6 +337,10 @@
       </div>
     </header>
     <div class="timer-shell"><div class="timer" id="timer"></div></div>
+    <div class="combo-strip" aria-live="polite">
+      <span>Streak <strong class="combo-value" id="combo">0</strong></span>
+      <strong class="multiplier" id="multiplier">×1</strong>
+    </div>
     <section class="board" id="board" aria-label="Game board"></section>
 
     <section class="checkpoint-banner" id="checkpointBanner" aria-live="polite">
@@ -329,7 +358,13 @@
         <div class="final" id="finalScore">0</div>
         <h1 id="title">Mook.</h1>
         <p class="subtitle" id="subtitle">Tap the first green to begin. Then hit every green within two seconds, avoid red, and master each new move.</p>
+        <div class="run-stats">
+          <div class="run-stat"><b id="accuracyStat">0%</b><small>Accuracy</small></div>
+          <div class="run-stat"><b id="streakStat">0</b><small>Best streak</small></div>
+          <div class="run-stat"><b id="checkpointStat">0</b><small>Checkpoint</small></div>
+        </div>
         <button class="primary" id="start">Start game</button>
+        <button class="secondary" id="share">Share score</button>
       </div>
     </section>
   </main>
@@ -339,12 +374,18 @@
     const timerEl = document.querySelector('#timer');
     const scoreEl = document.querySelector('#score');
     const bestEl = document.querySelector('#best');
+    const comboEl = document.querySelector('#combo');
+    const multiplierEl = document.querySelector('#multiplier');
     const overlay = document.querySelector('#overlay');
     const card = document.querySelector('#card');
     const startBtn = document.querySelector('#start');
     const titleEl = document.querySelector('#title');
     const subtitleEl = document.querySelector('#subtitle');
     const finalScoreEl = document.querySelector('#finalScore');
+    const accuracyStatEl = document.querySelector('#accuracyStat');
+    const streakStatEl = document.querySelector('#streakStat');
+    const checkpointStatEl = document.querySelector('#checkpointStat');
+    const shareBtn = document.querySelector('#share');
     const lifeEls = [...document.querySelectorAll('.life')];
     const checkpointBanner = document.querySelector('#checkpointBanner');
     const checkpointTitleEl = document.querySelector('#checkpointTitle');
@@ -384,6 +425,10 @@
     const SWIPE_THRESHOLD = 34;
     let activeGreens = new Map();
     let score = 0;
+    let streak = 0;
+    let bestStreak = 0;
+    let successes = 0;
+    let errors = 0;
     let highScore = loadHighScore();
     bestEl.textContent = highScore;
     let misses = 0;
@@ -440,6 +485,44 @@
       }
     }
 
+    function getMultiplier() {
+      return Math.min(4, 1 + Math.floor(streak / 5));
+    }
+
+    function updateCombo() {
+      comboEl.textContent = streak;
+      multiplierEl.textContent = `×${getMultiplier()}`;
+      comboEl.classList.remove('hot');
+      void comboEl.offsetWidth;
+      if (streak >= 5) comboEl.classList.add('hot');
+    }
+
+    function successGrade(spawnedAt, lifetime, label) {
+      if (label) return label;
+      if (!spawnedAt || !lifetime) return 'NICE';
+      const ratio = (performance.now() - spawnedAt) / lifetime;
+      if (ratio <= .35) return 'PERFECT';
+      if (ratio >= .78) return 'CLOSE';
+      return 'GOOD';
+    }
+
+    function recordSuccess(index, spawnedAt, lifetime, label) {
+      streak += 1;
+      successes += 1;
+      bestStreak = Math.max(bestStreak, streak);
+      const points = getMultiplier();
+      const grade = successGrade(spawnedAt, lifetime, label);
+      addScore(points);
+      updateCombo();
+      cells[index].dataset.feedback = `${grade}  +${points}`;
+      return points;
+    }
+
+    function resetCombo() {
+      streak = 0;
+      updateCombo();
+    }
+
     function tone(frequency, duration, volume = .04) {
       try {
         audio ||= new (window.AudioContext || window.webkitAudioContext)();
@@ -461,8 +544,9 @@
       while (spawned.size < count && available.length) {
         const pick = Math.floor(Math.random() * available.length);
         const index = available.splice(pick, 1)[0];
+        const spawnedAt = performance.now();
         const expiry = setTimeout(() => expireGreen(index), GREEN_LIFETIME_MS);
-        activeGreens.set(index, expiry);
+        activeGreens.set(index, { expiry, spawnedAt, tutorial: false });
         cells[index].classList.add('active');
         spawned.add(index);
       }
@@ -477,7 +561,7 @@
     function spawnOpeningGreen() {
       const index = Math.floor(Math.random() * cells.length);
       openingGreenWaiting = true;
-      activeGreens.set(index, 0);
+      activeGreens.set(index, { expiry: 0, spawnedAt: performance.now(), tutorial: true });
       cells[index].classList.add('active');
       timerEl.classList.remove('danger');
       timerEl.style.transform = 'scaleX(0)';
@@ -485,8 +569,8 @@
     }
 
     function clearGreen(index) {
-      const expiry = activeGreens.get(index);
-      if (expiry) clearTimeout(expiry);
+      const green = activeGreens.get(index);
+      if (green?.expiry) clearTimeout(green.expiry);
       activeGreens.delete(index);
       cells[index].classList.remove('active');
     }
@@ -535,7 +619,7 @@
       cells[index].classList.add('blue');
       cells[index].classList.toggle('tutorial', tutorial);
       const expiry = tutorial ? 0 : setTimeout(() => expireBlue(index), BLUE_LIFETIME_MS);
-      blueCells.set(index, { direction, expiry, tutorial });
+      blueCells.set(index, { direction, expiry, tutorial, spawnedAt: performance.now() });
       return index;
     }
 
@@ -567,13 +651,14 @@
       blueCells.delete(index);
       resolvingCells.add(index);
       cells[index].classList.add('hit', `slide-${direction}`);
-      addScore();
-      tone(820, .1);
+      recordSuccess(index, blue?.spawnedAt, tutorial ? 0 : BLUE_LIFETIME_MS, tutorial ? 'SWIPE' : undefined);
+      tone(820 + getMultiplier() * 45, .1);
       navigator.vibrate?.(18);
       const animationTimer = setTimeout(() => {
         resolvingCells.delete(index);
         animationTimers.delete(index);
         cells[index].classList.remove('blue', 'tutorial', 'hit', `slide-${direction}`);
+        delete cells[index].dataset.feedback;
         delete cells[index].dataset.arrow;
         delete cells[index].dataset.direction;
       }, 310);
@@ -634,7 +719,7 @@
       cells[index].classList.add('yellow');
       cells[index].classList.toggle('tutorial', tutorial);
       const expiry = tutorial ? 0 : setTimeout(() => expireYellow(index), YELLOW_LIFETIME_MS);
-      yellowCells.set(index, { expiry, tutorial, holding: false, holdTimer: 0 });
+      yellowCells.set(index, { expiry, tutorial, holding: false, holdTimer: 0, spawnedAt: performance.now() });
       return index;
     }
 
@@ -690,13 +775,14 @@
       resolvingCells.add(index);
       cells[index].classList.remove('holding', 'yellow-bounce', 'tutorial');
       cells[index].classList.add('hit', 'hold-complete');
-      addScore();
-      tone(920, .12);
+      recordSuccess(index, yellow.spawnedAt, yellow.tutorial ? 0 : YELLOW_LIFETIME_MS, yellow.tutorial ? 'HOLD' : undefined);
+      tone(920 + getMultiplier() * 45, .12);
       navigator.vibrate?.(24);
       const animationTimer = setTimeout(() => {
         resolvingCells.delete(index);
         animationTimers.delete(index);
         cells[index].classList.remove('yellow', 'tutorial', 'hit', 'hold-complete');
+        delete cells[index].dataset.feedback;
       }, 310);
       animationTimers.set(index, animationTimer);
       if (yellow.tutorial) {
@@ -719,7 +805,7 @@
       cells[index].classList.toggle('tutorial', tutorial);
       cells[index].dataset.hits = String(ROCK_HITS);
       const expiry = tutorial ? 0 : setTimeout(() => expireRock(index), ROCK_LIFETIME_MS);
-      rockCells.set(index, { expiry, tutorial, hits: ROCK_HITS });
+      rockCells.set(index, { expiry, tutorial, hits: ROCK_HITS, spawnedAt: performance.now() });
       return index;
     }
 
@@ -764,13 +850,14 @@
       resolvingCells.add(index);
       cells[index].classList.remove('tutorial', 'cracked-2', 'cracked-1', 'rock-hit');
       cells[index].classList.add('hit', 'rock-break');
-      addScore();
-      tone(1080, .14);
+      recordSuccess(index, rock.spawnedAt, rock.tutorial ? 0 : ROCK_LIFETIME_MS, rock.tutorial ? 'BREAK' : undefined);
+      tone(1080 + getMultiplier() * 45, .14);
       navigator.vibrate?.([18, 20, 28]);
       const animationTimer = setTimeout(() => {
         resolvingCells.delete(index);
         animationTimers.delete(index);
         cells[index].classList.remove('rock', 'hit', 'rock-break');
+        delete cells[index].dataset.feedback;
         delete cells[index].dataset.hits;
       }, 340);
       animationTimers.set(index, animationTimer);
@@ -877,6 +964,10 @@
       cancelAnimationFrame(raf);
       clearBoardTargets();
       timerEl.style.transform = 'scaleX(0)';
+      tone(620, .12, .05);
+      setTimeout(() => tone(820, .14, .045), 120);
+      setTimeout(() => tone(1040, .2, .04), 250);
+      navigator.vibrate?.([24, 35, 24]);
       if (level === 1) {
         showCheckpoint('Checkpoint', 'Swipe move unlocked', spawnTutorialBlue);
       } else if (level === 2) {
@@ -1085,12 +1176,17 @@
         losePoint('empty');
         return;
       }
+      const green = activeGreens.get(index);
+      const wasOpeningGreen = openingGreenWaiting;
       clearGreen(index);
       cells[index].classList.add('hit');
-      setTimeout(() => cells[index].classList.remove('hit'), 240);
-      addScore();
-      tone(660 + Math.min(score, 12) * 18, .09);
-      navigator.vibrate?.(18);
+      recordSuccess(index, green?.spawnedAt, wasOpeningGreen ? 0 : GREEN_LIFETIME_MS, wasOpeningGreen ? 'GO' : undefined);
+      setTimeout(() => {
+        cells[index].classList.remove('hit');
+        delete cells[index].dataset.feedback;
+      }, 300);
+      tone(660 + Math.min(streak, 16) * 22, .09);
+      navigator.vibrate?.(streak >= 5 ? [14, 18, 20] : 18);
       if (openingGreenWaiting) {
         openingGreenWaiting = false;
         gameStartedAt = performance.now();
@@ -1104,6 +1200,8 @@
 
     function losePoint(reason = 'miss') {
       misses += 1;
+      errors += 1;
+      resetCombo();
       lifeEls[misses - 1]?.classList.add('lost');
       tone(reason === 'red' ? 90 : 110, .22, .055);
       navigator.vibrate?.([70, 30, 70]);
@@ -1117,6 +1215,10 @@
       clearBoardTargets();
       cells.forEach(cell => cell.className = 'cell');
       score = 0;
+      streak = 0;
+      bestStreak = 0;
+      successes = 0;
+      errors = 0;
       misses = 0;
       graceCells.clear();
       blueGraceCells.clear();
@@ -1142,6 +1244,7 @@
       openingGreenWaiting = false;
       playing = true;
       scoreEl.textContent = '0';
+      updateCombo();
       lifeEls.forEach(life => life.classList.remove('lost'));
       card.classList.remove('game-over');
       overlay.classList.add('hidden');
@@ -1161,6 +1264,11 @@
       clearBoardTargets();
       canContinue = checkpointReached && !continueUsed;
       finalScoreEl.textContent = score;
+      const attempts = successes + errors;
+      accuracyStatEl.textContent = `${attempts ? Math.round(successes / attempts * 100) : 0}%`;
+      streakStatEl.textContent = bestStreak;
+      checkpointStatEl.textContent = checkpointLevel;
+      shareBtn.textContent = 'Share score';
       if (canContinue) {
         titleEl.textContent = 'Checkpoint saved.';
         subtitleEl.textContent = `One continue available. Restart from checkpoint ${checkpointLevel}.`;
@@ -1174,11 +1282,27 @@
       overlay.classList.remove('hidden');
     }
 
+    async function shareScore() {
+      const attempts = successes + errors;
+      const accuracy = attempts ? Math.round(successes / attempts * 100) : 0;
+      const text = `I scored ${score} in Mook — ${accuracy}% accuracy, ${bestStreak} best streak, checkpoint ${checkpointLevel}.`;
+      try {
+        if (navigator.share) {
+          await navigator.share({ title: 'Mook score', text, url: location.href });
+        } else {
+          await navigator.clipboard.writeText(`${text} ${location.href}`);
+          shareBtn.textContent = 'Copied!';
+          setTimeout(() => shareBtn.textContent = 'Share score', 1400);
+        }
+      } catch (_) {}
+    }
+
     function handleStartButton() {
       if (canContinue) continueFromCheckpoint(); else startGame();
     }
 
     startBtn.addEventListener('click', handleStartButton);
+    shareBtn.addEventListener('click', shareScore);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && playing) {
         clearTimeout(cycleTimer);
@@ -1214,7 +1338,7 @@
         phase2Age: phase2StartedAt ? performance.now() - phase2StartedAt : 0,
         phase3Age: phase3StartedAt ? performance.now() - phase3StartedAt : 0,
         phase4Age: phase4StartedAt ? performance.now() - phase4StartedAt : 0,
-        highScore,
+        highScore, streak, bestStreak, successes, errors, multiplier: getMultiplier(),
         checkpointScore, continueUsed, canContinue,
         checkpointVisible: checkpointBanner.classList.contains('show')
       })
