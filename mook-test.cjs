@@ -5,7 +5,7 @@ const { chromium } = require('playwright');
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('http://127.0.0.1:8765', { waitUntil: 'networkidle' });
+  await page.goto(process.env.MOOK_URL || 'http://127.0.0.1:8765', { waitUntil: 'networkidle' });
   await page.click('#start');
   await page.waitForFunction(() => window.__mook.getState().active >= 0);
   let state = await page.evaluate(() => window.__mook.getState());
