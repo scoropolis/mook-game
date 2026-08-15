@@ -48,7 +48,9 @@
       align-items: center;
       min-height: 70px;
     }
+    .brand-slot { display: flex; align-items: center; gap: 9px; }
     .brand { font-size: 18px; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; }
+    .settings-button { position: relative; z-index: 6; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 10px; color: #aab4af; background: #11171a; font-size: 14px; cursor: pointer; }
     .score { justify-self: center; display: grid; justify-items: center; gap: 1px; font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 800; color: var(--muted); }
     .score b { color: var(--ink); font-size: 20px; padding-left: 5px; }
     .score small { color: #768186; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
@@ -268,6 +270,19 @@
     .checkpoint-kicker { color: var(--green); font-size: 13px; font-weight: 950; letter-spacing: .22em; text-transform: uppercase; }
     .checkpoint-title { margin: 10px 0 8px; font-size: clamp(46px, 16vw, 76px); line-height: .9; letter-spacing: -.06em; }
     .checkpoint-subtitle { color: #b3bcb7; font-size: 16px; }
+    .settings-overlay {
+      position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; padding: 24px;
+      background: rgba(7,10,13,.9); backdrop-filter: blur(16px); transition: opacity .2s ease, visibility .2s ease;
+    }
+    .settings-overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    .settings-card { width: min(100%,350px); padding: 24px; border: 1px solid var(--line); border-radius: 22px; background: #0d1215; box-shadow: 0 22px 70px rgba(0,0,0,.42); }
+    .settings-card h2 { margin: 0 0 6px; font-size: 34px; letter-spacing: -.04em; }
+    .settings-note { margin: 0 0 20px; color: var(--muted); font-size: 13px; line-height: 1.4; }
+    .setting-row { min-height: 54px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); font-weight: 850; }
+    .toggle { min-width: 70px; min-height: 34px; border: 1px solid #31553e; border-radius: 99px; color: #071109; background: var(--green); font-weight: 950; }
+    .toggle.off { color: #9aa49f; border-color: var(--line); background: #20282b; }
+    .settings-action { width: 100%; min-height: 46px; margin-top: 10px; border: 1px solid var(--line); border-radius: 13px; color: var(--ink); background: #151c1f; font-weight: 850; }
+    .settings-close { width: 100%; min-height: 50px; margin-top: 18px; border: 0; border-radius: 14px; color: #071109; background: var(--green); font-weight: 950; }
     .ad-overlay {
       position: absolute; inset: 0; z-index: 8; display: grid; place-items: center;
       padding: 24px; background: rgba(7,10,13,.96); backdrop-filter: blur(16px);
@@ -350,7 +365,7 @@
 <body>
   <main class="app">
     <header class="topbar">
-      <div class="brand">Mook</div>
+      <div class="brand-slot"><div class="brand">Mook</div><button class="settings-button" id="settingsButton" aria-label="Settings">⚙</button></div>
       <div class="score"><span>Score <b id="score">0</b></span><small>Best <strong id="best">0</strong></small></div>
       <div class="lives" aria-label="Four lives">
         <i class="life"></i><i class="life"></i><i class="life"></i><i class="life"></i>
@@ -385,6 +400,18 @@
         </div>
         <button class="primary" id="start">Start game</button>
         <button class="secondary" id="share">Share score</button>
+      </div>
+    </section>
+
+    <section class="settings-overlay hidden" id="settingsOverlay" aria-label="Settings">
+      <div class="settings-card">
+        <h2>Settings</h2>
+        <p class="settings-note">Tune the arcade feedback. Changes are saved on this device.</p>
+        <div class="setting-row"><span>Sound</span><button class="toggle" id="soundToggle">On</button></div>
+        <div class="setting-row"><span>Haptics</span><button class="toggle" id="hapticsToggle">On</button></div>
+        <button class="settings-action" id="leaderboardButton">Game Center leaderboard</button>
+        <button class="settings-action" id="privacyButton">Ad privacy choices</button>
+        <button class="settings-close" id="settingsClose">Done</button>
       </div>
     </section>
 
@@ -424,6 +451,13 @@
     const checkpointSubtitleEl = document.querySelector('#checkpointSubtitle');
     const adOverlay = document.querySelector('#adOverlay');
     const adContinueBtn = document.querySelector('#adContinue');
+    const settingsButton = document.querySelector('#settingsButton');
+    const settingsOverlay = document.querySelector('#settingsOverlay');
+    const settingsClose = document.querySelector('#settingsClose');
+    const soundToggle = document.querySelector('#soundToggle');
+    const hapticsToggle = document.querySelector('#hapticsToggle');
+    const leaderboardButton = document.querySelector('#leaderboardButton');
+    const privacyButton = document.querySelector('#privacyButton');
 
     const cells = Array.from({ length: 8 }, (_, index) => {
       const button = document.createElement('button');
@@ -502,7 +536,78 @@
     let openingGreenWaiting = false;
     let adCountdownTimer = 0;
     let adVisible = false;
+    let soundEnabled = loadBooleanSetting('sound', true);
+    let hapticsEnabled = loadBooleanSetting('haptics', true);
+    let settingsWasPlaying = false;
     let audio;
+
+    function loadBooleanSetting(key, fallback) {
+      try {
+        const value = localStorage.getItem(`mook-${key}`);
+        return value === null ? fallback : value === '1';
+      } catch (_) { return fallback; }
+    }
+
+    function saveBooleanSetting(key, value) {
+      try { localStorage.setItem(`mook-${key}`, value ? '1' : '0'); } catch (_) {}
+      window.MookNative?.saveSetting(key, value).catch(() => {});
+    }
+
+    function updateSettingsUI() {
+      soundToggle.textContent = soundEnabled ? 'On' : 'Off';
+      hapticsToggle.textContent = hapticsEnabled ? 'On' : 'Off';
+      soundToggle.classList.toggle('off', !soundEnabled);
+      hapticsToggle.classList.toggle('off', !hapticsEnabled);
+      const nativeAvailable = Boolean(window.MookNative?.isNative);
+      leaderboardButton.disabled = !nativeAvailable;
+      privacyButton.disabled = !nativeAvailable;
+      if (!nativeAvailable) {
+        leaderboardButton.textContent = 'Game Center · iOS app';
+        privacyButton.textContent = 'Ad privacy · iOS app';
+      }
+    }
+
+    async function hydrateNativeSettings() {
+      if (!window.MookNative?.isNative) return updateSettingsUI();
+      try {
+        const [nativeSound, nativeHaptics] = await Promise.all([
+          window.MookNative.loadSetting('sound'),
+          window.MookNative.loadSetting('haptics')
+        ]);
+        if (nativeSound !== null) soundEnabled = nativeSound;
+        if (nativeHaptics !== null) hapticsEnabled = nativeHaptics;
+      } catch (_) {}
+      updateSettingsUI();
+      window.MookNative.setMuted(!soundEnabled).catch(() => {});
+    }
+
+    function buzz(pattern, kind = 'light') {
+      if (!hapticsEnabled) return;
+      if (window.MookNative?.isNative) window.MookNative.haptic(kind).catch(() => {});
+      else navigator.vibrate?.(pattern);
+    }
+
+    function openSettings() {
+      settingsWasPlaying = playing;
+      if (playing) {
+        clearTimeout(cycleTimer);
+        cancelAnimationFrame(raf);
+        clearBoardTargets();
+      }
+      updateSettingsUI();
+      settingsOverlay.classList.remove('hidden');
+    }
+
+    function closeSettings() {
+      settingsOverlay.classList.add('hidden');
+      if (!settingsWasPlaying || !playing) return;
+      settingsWasPlaying = false;
+      if (openingGreenWaiting) spawnOpeningGreen();
+      else if (checkpointLevel >= 3 && !rockUnlocked) spawnTutorialRock();
+      else if (checkpointLevel >= 2 && !yellowUnlocked) spawnTutorialYellow();
+      else if (checkpointLevel === 1 && !blueUnlocked) spawnTutorialBlue();
+      else nextCycle();
+    }
 
     function loadHighScore() {
       try {
@@ -518,6 +623,7 @@
         highScore = score;
         bestEl.textContent = highScore;
         try { localStorage.setItem('mook-high-score', String(highScore)); } catch (_) {}
+        window.MookNative?.submitScore(highScore).catch(() => {});
       }
     }
 
@@ -560,6 +666,7 @@
     }
 
     function tone(frequency, duration, volume = .04) {
+      if (!soundEnabled) return;
       try {
         audio ||= new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audio.createOscillator();
@@ -689,7 +796,7 @@
       cells[index].classList.add('hit', `slide-${direction}`);
       recordSuccess(index, blue?.spawnedAt, tutorial ? 0 : BLUE_LIFETIME_MS, tutorial ? 'SWIPE' : undefined);
       tone(820 + getMultiplier() * 45, .1);
-      navigator.vibrate?.(18);
+      buzz(18, 'light');
       const animationTimer = setTimeout(() => {
         resolvingCells.delete(index);
         animationTimers.delete(index);
@@ -813,7 +920,7 @@
       cells[index].classList.add('hit', 'hold-complete');
       recordSuccess(index, yellow.spawnedAt, yellow.tutorial ? 0 : YELLOW_LIFETIME_MS, yellow.tutorial ? 'HOLD' : undefined);
       tone(920 + getMultiplier() * 45, .12);
-      navigator.vibrate?.(24);
+      buzz(24, 'medium');
       const animationTimer = setTimeout(() => {
         resolvingCells.delete(index);
         animationTimers.delete(index);
@@ -877,7 +984,7 @@
       if (rock.hits === 1) cells[index].classList.add('cracked-1');
       cells[index].classList.add('rock-hit');
       tone(210 + (ROCK_HITS - rock.hits) * 75, .08, .045);
-      navigator.vibrate?.(12);
+      buzz(12, 'light');
       setTimeout(() => cells[index].classList.remove('rock-hit'), 170);
       if (rock.hits > 0) return;
 
@@ -888,7 +995,7 @@
       cells[index].classList.add('hit', 'rock-break');
       recordSuccess(index, rock.spawnedAt, rock.tutorial ? 0 : ROCK_LIFETIME_MS, rock.tutorial ? 'BREAK' : undefined);
       tone(1080 + getMultiplier() * 45, .14);
-      navigator.vibrate?.([18, 20, 28]);
+      buzz([18, 20, 28], 'success');
       const animationTimer = setTimeout(() => {
         resolvingCells.delete(index);
         animationTimers.delete(index);
@@ -1003,7 +1110,7 @@
       tone(620, .12, .05);
       setTimeout(() => tone(820, .14, .045), 120);
       setTimeout(() => tone(1040, .2, .04), 250);
-      navigator.vibrate?.([24, 35, 24]);
+      buzz([24, 35, 24], 'success');
       if (level === 1) {
         showCheckpoint('Checkpoint', 'Swipe move unlocked', spawnTutorialBlue);
       } else if (level === 2) {
@@ -1222,7 +1329,7 @@
         delete cells[index].dataset.feedback;
       }, 300);
       tone(660 + Math.min(streak, 16) * 22, .09);
-      navigator.vibrate?.(streak >= 5 ? [14, 18, 20] : 18);
+      buzz(streak >= 5 ? [14, 18, 20] : 18, streak >= 5 ? 'medium' : 'light');
       if (openingGreenWaiting) {
         openingGreenWaiting = false;
         gameStartedAt = performance.now();
@@ -1240,7 +1347,7 @@
       resetCombo();
       lifeEls[misses - 1]?.classList.add('lost');
       tone(reason === 'red' ? 90 : 110, .22, .055);
-      navigator.vibrate?.([70, 30, 70]);
+      buzz([70, 30, 70], 'error');
       if (misses >= 4) gameOver();
     }
 
@@ -1320,7 +1427,15 @@
       }
       card.classList.add('game-over');
       overlay.classList.remove('hidden');
-      if (!canContinue) setTimeout(() => !playing && showInterstitial(), 180);
+      if (!canContinue) setTimeout(() => !playing && showPostGameAd(), 180);
+    }
+
+    async function showPostGameAd() {
+      if (playing) return;
+      try {
+        if (await window.MookNative?.showInterstitial()) return;
+      } catch (_) {}
+      showInterstitial();
     }
 
     function showInterstitial() {
@@ -1356,6 +1471,7 @@
       const accuracy = attempts ? Math.round(successes / attempts * 100) : 0;
       const text = `I scored ${score} in Mook — ${accuracy}% accuracy, ${bestStreak} best streak, checkpoint ${checkpointLevel}.`;
       try {
+        if (window.MookNative?.isNative && await window.MookNative.shareScore(text)) return;
         if (navigator.share) {
           await navigator.share({ title: 'Mook score', text, url: location.href });
         } else {
@@ -1373,6 +1489,32 @@
     startBtn.addEventListener('click', handleStartButton);
     shareBtn.addEventListener('click', shareScore);
     adContinueBtn.addEventListener('click', hideInterstitial);
+    settingsButton.addEventListener('click', openSettings);
+    settingsClose.addEventListener('click', closeSettings);
+    soundToggle.addEventListener('click', () => {
+      soundEnabled = !soundEnabled;
+      saveBooleanSetting('sound', soundEnabled);
+      window.MookNative?.setMuted(!soundEnabled).catch(() => {});
+      updateSettingsUI();
+      if (soundEnabled) tone(620, .08);
+    });
+    hapticsToggle.addEventListener('click', () => {
+      hapticsEnabled = !hapticsEnabled;
+      saveBooleanSetting('haptics', hapticsEnabled);
+      updateSettingsUI();
+      if (hapticsEnabled) buzz(20, 'medium');
+    });
+    leaderboardButton.addEventListener('click', async () => {
+      leaderboardButton.textContent = 'Opening…';
+      const opened = await window.MookNative?.showLeaderboard().catch(() => false);
+      leaderboardButton.textContent = opened ? 'Game Center leaderboard' : 'Game Center unavailable';
+    });
+    privacyButton.addEventListener('click', async () => {
+      privacyButton.textContent = 'Opening…';
+      const opened = await window.MookNative?.showPrivacyOptions().catch(() => false);
+      privacyButton.textContent = opened ? 'Ad privacy choices' : 'Privacy form unavailable';
+    });
+    window.addEventListener('load', hydrateNativeSettings, { once: true });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && playing) {
         clearTimeout(cycleTimer);

@@ -1,0 +1,33 @@
+{
+  "name": "mook-game",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mook arcade score-chaser for web and iOS",
+  "type": "module",
+  "scripts": {
+    "prepare:web": "node scripts/prepare-web.mjs",
+    "build": "npm run prepare:web && vite build",
+    "ios:sync": "npm run build && cap sync ios",
+    "ios:open": "cap open ios",
+    "ios:build": "npm run ios:sync && xcodebuild -workspace ios/App/App.xcworkspace -scheme App -sdk iphonesimulator -configuration Debug -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build",
+    "test": "node tests/mook-web-test.cjs"
+  },
+  "dependencies": {
+    "@capacitor-community/admob": "8.1.0",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/core": "8.5.0",
+    "@capacitor/haptics": "8.0.2",
+    "@capacitor/ios": "8.5.0",
+    "@capacitor/preferences": "8.0.1",
+    "@capacitor/share": "^8.0.0",
+    "@capacitor/splash-screen": "8.0.2",
+    "@capacitor/status-bar": "8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "3.0.5",
+    "@capacitor/cli": "8.5.0",
+    "playwright": "1.55.0",
+    "typescript": "7.0.2",
+    "vite": "8.2.1"
+  }
+}
