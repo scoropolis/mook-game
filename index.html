@@ -124,6 +124,37 @@
       letter-spacing: .11em;
       text-align: center;
     }
+    .cell.yellow {
+      background:
+        radial-gradient(circle at 45% 35%, rgba(255,255,255,.3), transparent 38%),
+        #f5c542;
+      border-color: #ffe79a;
+      box-shadow: 0 0 28px rgba(245,197,66,.34), inset 0 1px 0 rgba(255,255,255,.34);
+      animation: green-in 130ms ease-out;
+    }
+    .cell.yellow::before {
+      content: "HOLD";
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #3a2b00;
+      font: 1000 clamp(20px, 7vw, 34px)/1 system-ui, sans-serif;
+      letter-spacing: .08em;
+    }
+    .cell.yellow.tutorial::after {
+      content: "HOLD FOR 1 SECOND";
+      position: absolute;
+      left: 8px; right: 8px; bottom: 17px;
+      color: #3a2b00;
+      font: 950 10px/1 system-ui, sans-serif;
+      letter-spacing: .08em;
+      text-align: center;
+    }
+    .cell.yellow.tutorial::before { transform: translateY(-12px); }
+    .cell.yellow.holding { animation: yellow-hold 1s linear forwards; }
+    .cell.yellow-bounce { animation: yellow-bounce .38s cubic-bezier(.2,.9,.3,1.35); }
+    .cell.hold-complete { animation: hold-complete .3s ease-in both; pointer-events: none; }
     .cell.slide-up { animation: slide-up .3s ease-in both; pointer-events: none; }
     .cell.slide-right { animation: slide-right .3s ease-in both; pointer-events: none; }
     .cell.slide-down { animation: slide-down .3s ease-in both; pointer-events: none; }
@@ -217,6 +248,9 @@
     @keyframes slide-down { to { opacity: 0; transform: translateY(115%) scale(.82); } }
     @keyframes slide-left { to { opacity: 0; transform: translateX(-115%) scale(.82); } }
     @keyframes blue-wrong { 0%,100% { transform: translateX(0); filter: none; } 25% { transform: translateX(-10px); filter: saturate(.25); } 50% { transform: translateX(9px); background: var(--danger); } 75% { transform: translateX(-5px); } }
+    @keyframes yellow-hold { from { transform: scale(1); border-radius: 18px; } to { transform: scale(.28); border-radius: 50%; filter: brightness(1.25); } }
+    @keyframes yellow-bounce { 0% { transform: scale(.58); } 65% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    @keyframes hold-complete { to { opacity: 0; transform: scale(.05); filter: brightness(1.6); } }
     @media (prefers-reduced-motion: reduce) { *, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
   </style>
 </head>
@@ -285,8 +319,15 @@
     const CHAOS_START_MS = 20000;
     const BLUE_START_MS = 30000;
     const BLUE_LIFETIME_MS = 2000;
+    const YELLOW_LIFETIME_MS = 3000;
+    const YELLOW_HOLD_MS = 1000;
+    const PHASE_RAMP_MS = 15000;
+    const TRIPLE_GREEN_START_MS = 15000;
+    const DOUBLE_BLUE_START_MS = 30000;
+    const SECOND_CHECKPOINT_MS = 45000;
     const RED_CHANCE = .25;
     const BLUE_CHANCE = .25;
+    const YELLOW_CHANCE = .2;
     const SWIPE_THRESHOLD = 34;
     let activeGreens = new Map();
     let score = 0;
@@ -303,11 +344,18 @@
     let blueCells = new Map();
     let blueGraceCells = new Set();
     let blueGraceUntil = 0;
+    let yellowCells = new Map();
+    let yellowGraceCells = new Set();
+    let yellowGraceUntil = 0;
     let resolvingCells = new Set();
     let animationTimers = new Map();
     let checkpointReached = false;
+    let checkpointLevel = 0;
     let blueUnlocked = false;
+    let yellowUnlocked = false;
     let tutorialActive = false;
+    let phase2StartedAt = 0;
+    let phase3StartedAt = 0;
     let checkpointScore = 0;
     let continueUsed = false;
     let canContinue = false;
@@ -329,8 +377,8 @@
     }
 
     function chooseGreens(count) {
-      let available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i) && !lastGreens.has(i));
-      if (available.length < count) available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i));
+      let available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i) && !yellowCells.has(i) && !lastGreens.has(i));
+      if (available.length < count) available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i) && !yellowCells.has(i));
       const spawned = new Set();
       while (spawned.size < count && available.length) {
         const pick = Math.floor(Math.random() * available.length);
@@ -364,7 +412,7 @@
 
     function spawnRed(preferredIndex) {
       if (!playing) return -1;
-      const available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i));
+      const available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i) && !yellowCells.has(i));
       if (!available.length) return -1;
       const index = available.includes(preferredIndex)
         ? preferredIndex
@@ -386,7 +434,7 @@
       if (!playing) return -1;
       const directions = ['up', 'right', 'down', 'left'];
       const arrows = { up: '↑', right: '→', down: '↓', left: '←' };
-      const available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i) && !resolvingCells.has(i));
+      const available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i) && !yellowCells.has(i) && !resolvingCells.has(i));
       if (!available.length) return -1;
       const index = available.includes(preferredIndex)
         ? preferredIndex
@@ -446,6 +494,7 @@
       if (tutorial) {
         tutorialActive = false;
         blueUnlocked = true;
+        phase2StartedAt = performance.now();
         checkpointScore = score;
         cycleTimer = setTimeout(() => playing && nextCycle(), 360);
       }
@@ -488,17 +537,112 @@
       losePoint('blue-wrong');
     }
 
+    function spawnYellow(preferredIndex, tutorial = false) {
+      if (!playing) return -1;
+      const available = cells.map((_, i) => i).filter(i => !activeGreens.has(i) && !redCells.has(i) && !blueCells.has(i) && !yellowCells.has(i) && !resolvingCells.has(i));
+      if (!available.length) return -1;
+      const index = available.includes(preferredIndex)
+        ? preferredIndex
+        : available[Math.floor(Math.random() * available.length)];
+      cells[index].classList.add('yellow');
+      cells[index].classList.toggle('tutorial', tutorial);
+      const expiry = tutorial ? 0 : setTimeout(() => expireYellow(index), YELLOW_LIFETIME_MS);
+      yellowCells.set(index, { expiry, tutorial, holding: false, holdTimer: 0 });
+      return index;
+    }
+
+    function clearYellow(index) {
+      const yellow = yellowCells.get(index);
+      if (yellow?.expiry) clearTimeout(yellow.expiry);
+      if (yellow?.holdTimer) clearTimeout(yellow.holdTimer);
+      yellowCells.delete(index);
+      resolvingCells.delete(index);
+      const animationTimer = animationTimers.get(index);
+      if (animationTimer) clearTimeout(animationTimer);
+      animationTimers.delete(index);
+      cells[index].classList.remove('yellow', 'tutorial', 'holding', 'yellow-bounce', 'hold-complete');
+    }
+
+    function expireYellow(index) {
+      const yellow = yellowCells.get(index);
+      if (!yellow || yellow.tutorial) return;
+      yellowGraceCells = new Set([index]);
+      yellowGraceUntil = performance.now() + 300;
+      clearYellow(index);
+      losePoint('yellow-miss');
+    }
+
+    function beginYellowHold(index) {
+      const yellow = yellowCells.get(index);
+      if (!yellow || yellow.holding || !playing) return;
+      yellow.holding = true;
+      cells[index].classList.remove('yellow-bounce');
+      void cells[index].offsetWidth;
+      cells[index].classList.add('holding');
+      yellow.holdTimer = setTimeout(() => completeYellowHold(index), YELLOW_HOLD_MS);
+    }
+
+    function endYellowHold(index) {
+      const yellow = yellowCells.get(index);
+      if (!yellow || !yellow.holding) return;
+      clearTimeout(yellow.holdTimer);
+      yellow.holdTimer = 0;
+      yellow.holding = false;
+      cells[index].classList.remove('holding', 'yellow-bounce');
+      void cells[index].offsetWidth;
+      cells[index].classList.add('yellow-bounce');
+      setTimeout(() => cells[index].classList.remove('yellow-bounce'), 390);
+    }
+
+    function completeYellowHold(index) {
+      const yellow = yellowCells.get(index);
+      if (!yellow) return;
+      if (yellow.expiry) clearTimeout(yellow.expiry);
+      if (yellow.holdTimer) clearTimeout(yellow.holdTimer);
+      yellowCells.delete(index);
+      resolvingCells.add(index);
+      cells[index].classList.remove('holding', 'yellow-bounce', 'tutorial');
+      cells[index].classList.add('hit', 'hold-complete');
+      score += 1;
+      scoreEl.textContent = score;
+      tone(920, .12);
+      navigator.vibrate?.(24);
+      const animationTimer = setTimeout(() => {
+        resolvingCells.delete(index);
+        animationTimers.delete(index);
+        cells[index].classList.remove('yellow', 'tutorial', 'hit', 'hold-complete');
+      }, 310);
+      animationTimers.set(index, animationTimer);
+      if (yellow.tutorial) {
+        tutorialActive = false;
+        yellowUnlocked = true;
+        phase3StartedAt = performance.now();
+        checkpointScore = score;
+        cycleTimer = setTimeout(() => playing && nextCycle(), 380);
+      }
+    }
+
     function wireCellGesture(cell, index) {
       let gesture = null;
       cell.addEventListener('pointerdown', event => {
         event.preventDefault();
-        gesture = { x: event.clientX, y: event.clientY, blue: blueCells.has(index) };
+        if (yellowCells.has(index)) {
+          gesture = { yellow: true };
+          beginYellowHold(index);
+          try { cell.setPointerCapture(event.pointerId); } catch (_) {}
+          return;
+        }
+        gesture = { x: event.clientX, y: event.clientY, blue: blueCells.has(index), yellow: false };
         try { cell.setPointerCapture(event.pointerId); } catch (_) {}
       });
       cell.addEventListener('pointerup', event => {
         if (!gesture) return;
         const start = gesture;
         gesture = null;
+        if (start.yellow) {
+          endYellowHold(index);
+          return;
+        }
         const dx = event.clientX - start.x;
         const dy = event.clientY - start.y;
         if (start.blue || blueCells.has(index) || (blueGraceCells.has(index) && performance.now() <= blueGraceUntil)) {
@@ -507,13 +651,17 @@
           tap(index);
         }
       });
-      cell.addEventListener('pointercancel', () => { gesture = null; });
+      cell.addEventListener('pointercancel', () => {
+        if (gesture?.yellow) endYellowHold(index);
+        gesture = null;
+      });
     }
 
     function clearBoardTargets() {
       activeGreens.forEach((_, index) => clearGreen(index));
       redCells.forEach((_, index) => clearRed(index));
       blueCells.forEach((_, index) => clearBlue(index));
+      yellowCells.forEach((_, index) => clearYellow(index));
       resolvingCells.forEach(index => {
         const animationTimer = animationTimers.get(index);
         if (animationTimer) clearTimeout(animationTimer);
@@ -544,15 +692,27 @@
       spawnBlue(undefined, undefined, true);
     }
 
-    function beginCheckpoint() {
-      if (!playing || checkpointReached) return;
+    function spawnTutorialYellow() {
+      if (!playing || yellowUnlocked) return;
+      tutorialActive = true;
+      spawnYellow(undefined, true);
+    }
+
+    function beginCheckpoint(level = 1) {
+      if (!playing || level <= checkpointLevel) return;
       checkpointReached = true;
+      checkpointLevel = level;
       checkpointScore = score;
+      tutorialActive = false;
       clearTimeout(cycleTimer);
       cancelAnimationFrame(raf);
       clearBoardTargets();
       timerEl.style.transform = 'scaleX(0)';
-      showCheckpoint('Checkpoint', 'New move unlocked', spawnTutorialBlue);
+      if (level === 1) {
+        showCheckpoint('Checkpoint', 'Swipe move unlocked', spawnTutorialBlue);
+      } else {
+        showCheckpoint('Checkpoint 2', 'Hold move unlocked', spawnTutorialYellow);
+      }
     }
 
     function continueFromCheckpoint() {
@@ -569,30 +729,100 @@
       card.classList.remove('game-over');
       overlay.classList.add('hidden');
       gameStartedAt = performance.now() - BLUE_START_MS;
-      showCheckpoint('Continue', 'Checkpoint restored', () => {
+      showCheckpoint('Continue', `Checkpoint ${checkpointLevel} restored`, () => {
         if (!playing) return;
-        if (blueUnlocked) nextCycle(); else spawnTutorialBlue();
+        if (checkpointLevel >= 2) {
+          if (yellowUnlocked) {
+            phase3StartedAt = performance.now();
+            nextCycle();
+          } else {
+            spawnTutorialYellow();
+          }
+        } else if (blueUnlocked) {
+          phase2StartedAt = performance.now();
+          nextCycle();
+        } else {
+          spawnTutorialBlue();
+        }
       });
     }
 
     function nextCycle() {
       if (!playing) return;
-      const elapsed = performance.now() - gameStartedAt;
-      if (elapsed >= BLUE_START_MS && !checkpointReached) {
-        beginCheckpoint();
+      const now = performance.now();
+      const elapsed = now - gameStartedAt;
+      if (elapsed >= BLUE_START_MS && checkpointLevel === 0) {
+        beginCheckpoint(1);
         return;
       }
-      if (checkpointReached && !blueUnlocked) return;
+      if (checkpointLevel === 1 && !blueUnlocked) return;
+      if (checkpointLevel >= 2 && !yellowUnlocked) return;
+
       let greenCount = 1;
+      let redChance = RED_CHANCE;
+      let blueChance = 0;
+      let blueCount = 1;
+      let yellowChance = 0;
       roundLength = BASE_BEAT_MS;
-      if (elapsed >= CHAOS_START_MS) {
-        const doubleGreenRound = Math.random() < .5;
-        greenCount = doubleGreenRound ? 2 : 1;
-        roundLength = doubleGreenRound ? BASE_BEAT_MS : FAST_BEAT_MS;
+
+      if (yellowUnlocked) {
+        const phaseAge = now - phase3StartedAt;
+        if (phaseAge < 5000) {
+          redChance = .12; blueChance = .10; yellowChance = .08;
+        } else if (phaseAge < 10000) {
+          greenCount = Math.random() < .2 ? 2 : 1;
+          roundLength = greenCount > 1 ? BASE_BEAT_MS : 850;
+          redChance = .18; blueChance = .16; yellowChance = .12;
+        } else if (phaseAge < PHASE_RAMP_MS) {
+          const roll = Math.random();
+          greenCount = roll < .1 ? 3 : roll < .45 ? 2 : 1;
+          roundLength = greenCount > 1 ? BASE_BEAT_MS : 700;
+          redChance = .23; blueChance = .21; yellowChance = .16;
+        } else {
+          const roll = Math.random();
+          greenCount = roll < .18 ? 3 : roll < .58 ? 2 : 1;
+          roundLength = greenCount > 1 ? BASE_BEAT_MS : FAST_BEAT_MS;
+          blueChance = BLUE_CHANCE;
+          blueCount = Math.random() < .35 ? 2 : 1;
+          yellowChance = YELLOW_CHANCE;
+        }
+      } else if (blueUnlocked) {
+        const phaseAge = now - phase2StartedAt;
+        if (phaseAge >= SECOND_CHECKPOINT_MS && checkpointLevel < 2) {
+          beginCheckpoint(2);
+          return;
+        }
+        if (phaseAge < 5000) {
+          redChance = .15; blueChance = .12;
+        } else if (phaseAge < 10000) {
+          roundLength = 850;
+          redChance = .20; blueChance = .17;
+        } else if (phaseAge < PHASE_RAMP_MS) {
+          greenCount = Math.random() < .2 ? 2 : 1;
+          roundLength = greenCount > 1 ? BASE_BEAT_MS : 750;
+          redChance = .22; blueChance = .20;
+        } else {
+          const roll = Math.random();
+          greenCount = phaseAge >= TRIPLE_GREEN_START_MS && roll < .18 ? 3 : roll < .58 ? 2 : 1;
+          roundLength = greenCount > 1 ? BASE_BEAT_MS : FAST_BEAT_MS;
+          blueChance = BLUE_CHANCE;
+          if (phaseAge >= DOUBLE_BLUE_START_MS) blueCount = Math.random() < .35 ? 2 : 1;
+        }
+      } else {
+        if (elapsed >= CHAOS_START_MS) {
+          const doubleGreenRound = Math.random() < .5;
+          greenCount = doubleGreenRound ? 2 : 1;
+          roundLength = doubleGreenRound ? BASE_BEAT_MS : FAST_BEAT_MS;
+        }
+        redChance = elapsed >= RED_START_MS ? RED_CHANCE : 0;
       }
+
       chooseGreens(greenCount);
-      if (elapsed >= RED_START_MS && Math.random() < RED_CHANCE) spawnRed();
-      if (blueUnlocked && Math.random() < BLUE_CHANCE) spawnBlue();
+      if (Math.random() < redChance) spawnRed();
+      if (blueUnlocked && Math.random() < blueChance) {
+        for (let i = 0; i < blueCount; i++) spawnBlue();
+      }
+      if (yellowUnlocked && yellowCells.size === 0 && Math.random() < yellowChance) spawnYellow();
       clearTimeout(cycleTimer);
       cycleTimer = setTimeout(nextCycle, roundLength);
     }
@@ -608,6 +838,12 @@
 
     function tap(index) {
       if (!playing || resolvingCells.has(index)) return;
+      if (yellowCells.has(index)) {
+        beginYellowHold(index);
+        setTimeout(() => endYellowHold(index), 0);
+        return;
+      }
+      if (yellowGraceCells.has(index) && performance.now() <= yellowGraceUntil) return;
       if (blueCells.has(index)) {
         resolveBlueSwipe(index, 0, 0);
         return;
@@ -656,11 +892,17 @@
       graceCells.clear();
       blueGraceCells.clear();
       blueGraceUntil = 0;
+      yellowGraceCells.clear();
+      yellowGraceUntil = 0;
       resolvingCells.clear();
       animationTimers.clear();
       checkpointReached = false;
+      checkpointLevel = 0;
       blueUnlocked = false;
+      yellowUnlocked = false;
       tutorialActive = false;
+      phase2StartedAt = 0;
+      phase3StartedAt = 0;
       checkpointScore = 0;
       continueUsed = false;
       canContinue = false;
@@ -686,7 +928,7 @@
       finalScoreEl.textContent = score;
       if (canContinue) {
         titleEl.textContent = 'Checkpoint saved.';
-        subtitleEl.textContent = 'One continue available. Restart from the blue-stage checkpoint.';
+        subtitleEl.textContent = `One continue available. Restart from checkpoint ${checkpointLevel}.`;
         startBtn.textContent = 'Continue';
       } else {
         titleEl.textContent = score >= 20 ? 'Sharp.' : score >= 10 ? 'Not bad.' : 'Game over.';
@@ -708,20 +950,30 @@
         cancelAnimationFrame(raf);
         clearBoardTargets();
       } else if (!document.hidden && playing) {
-        if (checkpointReached && !blueUnlocked) spawnTutorialBlue(); else nextCycle();
+        if (checkpointLevel >= 2 && !yellowUnlocked) spawnTutorialYellow();
+        else if (checkpointLevel === 1 && !blueUnlocked) spawnTutorialBlue();
+        else nextCycle();
       }
     });
 
     window.__mook = {
-      startGame, continueFromCheckpoint, beginCheckpoint, tap, spawnRed, spawnBlue, spawnGreens: chooseGreens, resolveBlueSwipe, losePoint, nextCycle,
+      startGame, continueFromCheckpoint, beginCheckpoint, tap,
+      spawnRed, spawnBlue, spawnYellow, spawnGreens: chooseGreens,
+      resolveBlueSwipe, beginYellowHold, endYellowHold, completeYellowHold, losePoint, nextCycle,
       pauseSpawnsForTest: () => clearTimeout(cycleTimer),
       setElapsedForTest: milliseconds => { gameStartedAt = performance.now() - milliseconds; },
+      setPhase2AgeForTest: milliseconds => { phase2StartedAt = performance.now() - milliseconds; },
+      setPhase3AgeForTest: milliseconds => { phase3StartedAt = performance.now() - milliseconds; },
       getState: () => ({
         active: [...activeGreens.keys()], score, misses, playing,
         red: [...redCells.keys()],
         blue: [...blueCells.entries()].map(([index, value]) => ({ index, direction: value.direction, tutorial: value.tutorial })),
+        yellow: [...yellowCells.entries()].map(([index, value]) => ({ index, tutorial: value.tutorial, holding: value.holding })),
         elapsed: performance.now() - gameStartedAt, roundLength,
-        checkpointReached, blueUnlocked, tutorialActive, checkpointScore, continueUsed, canContinue,
+        checkpointReached, checkpointLevel, blueUnlocked, yellowUnlocked, tutorialActive,
+        phase2Age: phase2StartedAt ? performance.now() - phase2StartedAt : 0,
+        phase3Age: phase3StartedAt ? performance.now() - phase3StartedAt : 0,
+        checkpointScore, continueUsed, canContinue,
         checkpointVisible: checkpointBanner.classList.contains('show')
       })
     };
