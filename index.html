@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#070a0d" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Mook</title>
+  <style>
+    :root {
+      --ink: #f5f7f4;
+      --muted: #8d9891;
+      --void: #070a0d;
+      --cell: #11171a;
+      --line: #243034;
+      --green: #39e071;
+      --green-hot: #8bffad;
+      --danger: #ff5c64;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; margin: 0; overflow: hidden; background: var(--void); }
+    body {
+      color: var(--ink);
+      font-family: ui-rounded, "SF Pro Rounded", "Avenir Next", system-ui, sans-serif;
+      touch-action: manipulation;
+      user-select: none;
+    }
+    button { font: inherit; }
+    .app {
+      width: min(100vw, 520px);
+      height: 100dvh;
+      min-height: 560px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      background:
+        radial-gradient(circle at 50% -10%, rgba(57,224,113,.12), transparent 34%),
+        var(--void);
+      position: relative;
+      isolation: isolate;
+    }
+    .topbar {
+      padding: max(16px, env(safe-area-inset-top)) 18px 10px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      min-height: 70px;
+    }
+    .brand { font-size: 18px; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; }
+    .score { justify-self: center; font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 800; color: var(--muted); }
+    .score b { color: var(--ink); font-size: 20px; padding-left: 5px; }
+    .lives { justify-self: end; display: flex; gap: 6px; }
+    .life { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(57,224,113,.5); transition: .2s ease; }
+    .life.lost { background: #283034; box-shadow: none; transform: scale(.74); }
+    .timer-shell { height: 5px; margin: 0 18px 14px; background: #1a2225; overflow: hidden; border-radius: 99px; }
+    .timer { height: 100%; width: 100%; transform-origin: left; background: var(--green); box-shadow: 0 0 16px rgba(57,224,113,.7); }
+    .timer.danger { background: var(--danger); box-shadow: 0 0 16px rgba(255,92,100,.65); }
+    .board {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(4, 1fr);
+      gap: 8px;
+      padding: 0 8px max(8px, env(safe-area-inset-bottom));
+    }
+    .cell {
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,.025), transparent 45%),
+        var(--cell);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: transform 70ms ease, background 120ms ease, border-color 120ms ease;
+    }
+    .cell:active { transform: scale(.98); }
+    .cell.active {
+      background:
+        radial-gradient(circle at 45% 35%, rgba(255,255,255,.24), transparent 38%),
+        var(--green);
+      border-color: var(--green-hot);
+      box-shadow: 0 0 28px rgba(57,224,113,.35), inset 0 1px 0 rgba(255,255,255,.32);
+      animation: green-in 130ms ease-out;
+    }
+    .cell.hit::after {
+      content: "+1";
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-weight: 1000;
+      font-size: clamp(28px, 10vw, 56px);
+      color: white;
+      animation: pop .24s ease-out both;
+    }
+    .cell.wrong { animation: wrong .18s linear; }
+    .overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+      background: rgba(7,10,13,.86);
+      backdrop-filter: blur(14px);
+      transition: opacity .25s ease, visibility .25s ease;
+    }
+    .overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    .card { width: min(100%, 350px); text-align: center; }
+    .mark {
+      width: 86px; height: 86px; margin: 0 auto 24px;
+      border-radius: 24px; background: var(--green);
+      box-shadow: 0 0 50px rgba(57,224,113,.28);
+      display: grid; place-items: center;
+      color: #071109; font-size: 44px; font-weight: 1000;
+      transform: rotate(-3deg);
+    }
+    h1 { margin: 0; font-size: clamp(54px, 18vw, 82px); line-height: .9; letter-spacing: -.075em; }
+    .subtitle { margin: 18px auto 28px; color: #b3bcb7; max-width: 270px; line-height: 1.45; font-size: 16px; }
+    .primary {
+      width: 100%; min-height: 58px; border: 0; border-radius: 16px;
+      color: #071109; background: var(--green); font-weight: 950; font-size: 17px;
+      box-shadow: 0 10px 32px rgba(57,224,113,.18); cursor: pointer;
+    }
+    .primary:active { transform: translateY(1px) scale(.99); }
+    .result { display: none; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .15em; font-weight: 800; margin-bottom: 10px; }
+    .final { display: none; font-size: 68px; font-weight: 1000; letter-spacing: -.06em; margin-bottom: 8px; }
+    .game-over .mark { background: var(--danger); box-shadow: 0 0 50px rgba(255,92,100,.2); }
+    .game-over .result, .game-over .final { display: block; }
+    .game-over h1 { font-size: 42px; letter-spacing: -.04em; }
+    @keyframes green-in { from { transform: scale(.94); filter: brightness(1.4); } to { transform: scale(1); } }
+    @keyframes pop { from { opacity: 1; transform: scale(.65); } to { opacity: 0; transform: scale(1.25) translateY(-10px); } }
+    @keyframes wrong { 0%,100% { border-color: var(--line); } 50% { border-color: var(--danger); background: rgba(255,92,100,.2); } }
+    @media (prefers-reduced-motion: reduce) { *, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">Mook</div>
+      <div class="score">Score <b id="score">0</b></div>
+      <div class="lives" aria-label="Four lives">
+        <i class="life"></i><i class="life"></i><i class="life"></i><i class="life"></i>
+      </div>
+    </header>
+    <div class="timer-shell"><div class="timer" id="timer"></div></div>
+    <section class="board" id="board" aria-label="Game board"></section>
+
+    <section class="overlay" id="overlay">
+      <div class="card" id="card">
+        <div class="mark">M</div>
+        <div class="result">Final score</div>
+        <div class="final" id="finalScore">0</div>
+        <h1 id="title">Mook.</h1>
+        <p class="subtitle" id="subtitle">Tap the green tile before the two-second timer runs out. Four misses and you're done.</p>
+        <button class="primary" id="start">Start game</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const board = document.querySelector('#board');
+    const timerEl = document.querySelector('#timer');
+    const scoreEl = document.querySelector('#score');
+    const overlay = document.querySelector('#overlay');
+    const card = document.querySelector('#card');
+    const startBtn = document.querySelector('#start');
+    const titleEl = document.querySelector('#title');
+    const subtitleEl = document.querySelector('#subtitle');
+    const finalScoreEl = document.querySelector('#finalScore');
+    const lifeEls = [...document.querySelectorAll('.life')];
+
+    const cells = Array.from({ length: 8 }, (_, index) => {
+      const button = document.createElement('button');
+      button.className = 'cell';
+      button.type = 'button';
+      button.setAttribute('aria-label', `Tile ${index + 1}`);
+      button.addEventListener('pointerdown', () => tap(index));
+      board.append(button);
+      return button;
+    });
+
+    let active = -1;
+    let score = 0;
+    let misses = 0;
+    let playing = false;
+    let roundStarted = 0;
+    let roundLength = 2000;
+    let raf = 0;
+    let lastActive = -1;
+    let audio;
+
+    function tone(frequency, duration, volume = .04) {
+      try {
+        audio ||= new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audio.createOscillator();
+        const gain = audio.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.value = frequency;
+        gain.gain.setValueAtTime(volume, audio.currentTime);
+        gain.gain.exponentialRampToValueAtTime(.0001, audio.currentTime + duration);
+        oscillator.connect(gain).connect(audio.destination);
+        oscillator.start(); oscillator.stop(audio.currentTime + duration);
+      } catch (_) {}
+    }
+
+    function chooseCell() {
+      let next;
+      do next = Math.floor(Math.random() * 8); while (next === lastActive);
+      lastActive = active = next;
+      cells.forEach((cell, i) => cell.classList.toggle('active', i === active));
+      roundStarted = performance.now();
+      timerEl.classList.remove('danger');
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(tick);
+    }
+
+    function tick(now) {
+      if (!playing) return;
+      const remaining = Math.max(0, 1 - (now - roundStarted) / roundLength);
+      timerEl.style.transform = `scaleX(${remaining})`;
+      timerEl.classList.toggle('danger', remaining < .28);
+      if (remaining <= 0) return miss();
+      raf = requestAnimationFrame(tick);
+    }
+
+    function tap(index) {
+      if (!playing) return;
+      if (index !== active) {
+        cells[index].classList.remove('wrong');
+        void cells[index].offsetWidth;
+        cells[index].classList.add('wrong');
+        tone(130, .08, .02);
+        return;
+      }
+      cancelAnimationFrame(raf);
+      cells[index].classList.remove('active');
+      cells[index].classList.add('hit');
+      setTimeout(() => cells[index].classList.remove('hit'), 240);
+      score += 1;
+      scoreEl.textContent = score;
+      tone(660 + Math.min(score, 12) * 18, .09);
+      navigator.vibrate?.(18);
+      // Starts at 2 seconds, then eases down to a 0.85 second floor.
+      roundLength = Math.max(850, 2000 - score * 32);
+      setTimeout(() => playing && chooseCell(), 90);
+    }
+
+    function miss() {
+      cancelAnimationFrame(raf);
+      cells.forEach(cell => cell.classList.remove('active'));
+      active = -1;
+      misses += 1;
+      lifeEls[misses - 1]?.classList.add('lost');
+      tone(110, .22, .055);
+      navigator.vibrate?.([70, 30, 70]);
+      timerEl.style.transform = 'scaleX(0)';
+      if (misses >= 4) return gameOver();
+      setTimeout(() => playing && chooseCell(), 400);
+    }
+
+    function startGame() {
+      score = 0; misses = 0; roundLength = 2000; playing = true;
+      scoreEl.textContent = '0';
+      lifeEls.forEach(life => life.classList.remove('lost'));
+      card.classList.remove('game-over');
+      overlay.classList.add('hidden');
+      tone(420, .08);
+      setTimeout(chooseCell, 280);
+    }
+
+    function gameOver() {
+      playing = false;
+      finalScoreEl.textContent = score;
+      titleEl.textContent = score >= 20 ? 'Sharp.' : score >= 10 ? 'Not bad.' : 'Game over.';
+      subtitleEl.textContent = score ? `You caught ${score} green tile${score === 1 ? '' : 's'}. Go again.` : 'The green tile got away. Go again.';
+      startBtn.textContent = 'Play again';
+      card.classList.add('game-over');
+      overlay.classList.remove('hidden');
+    }
+
+    startBtn.addEventListener('click', startGame);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && playing) {
+        cancelAnimationFrame(raf);
+        roundStarted = performance.now();
+      } else if (!document.hidden && playing) {
+        roundStarted = performance.now();
+        raf = requestAnimationFrame(tick);
+      }
+    });
+
+    window.__mook = { startGame, miss, tap, getState: () => ({ active, score, misses, playing, roundLength }) };
+  </script>
+</body>
+</html>
