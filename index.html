@@ -720,7 +720,6 @@
       clearTimeout(checkpointTimer);
       clearBoardTargets();
       misses = 0;
-      score = checkpointScore;
       scoreEl.textContent = score;
       lifeEls.forEach(life => life.classList.remove('lost'));
       continueUsed = true;
