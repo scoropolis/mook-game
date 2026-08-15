@@ -328,7 +328,7 @@
         <div class="result">Final score</div>
         <div class="final" id="finalScore">0</div>
         <h1 id="title">Mook.</h1>
-        <p class="subtitle" id="subtitle">Tap every green within two seconds. Avoid red. After 30 seconds, swipe blue arrows in their direction.</p>
+        <p class="subtitle" id="subtitle">Tap the first green to begin. Then hit every green within two seconds, avoid red, and master each new move.</p>
         <button class="primary" id="start">Start game</button>
       </div>
     </section>
@@ -420,6 +420,7 @@
     let continueUsed = false;
     let canContinue = false;
     let checkpointTimer = 0;
+    let openingGreenWaiting = false;
     let audio;
 
     function loadHighScore() {
@@ -471,6 +472,16 @@
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(tick);
       return [...spawned];
+    }
+
+    function spawnOpeningGreen() {
+      const index = Math.floor(Math.random() * cells.length);
+      openingGreenWaiting = true;
+      activeGreens.set(index, 0);
+      cells[index].classList.add('active');
+      timerEl.classList.remove('danger');
+      timerEl.style.transform = 'scaleX(0)';
+      return index;
     }
 
     function clearGreen(index) {
@@ -1065,6 +1076,7 @@
         return;
       }
       if (!activeGreens.has(index)) {
+        if (openingGreenWaiting) return;
         if ((graceCells.get(index) || 0) >= performance.now()) return;
         cells[index].classList.remove('penalty');
         void cells[index].offsetWidth;
@@ -1079,6 +1091,15 @@
       addScore();
       tone(660 + Math.min(score, 12) * 18, .09);
       navigator.vibrate?.(18);
+      if (openingGreenWaiting) {
+        openingGreenWaiting = false;
+        gameStartedAt = performance.now();
+        roundStarted = gameStartedAt;
+        roundLength = BASE_BEAT_MS;
+        timerEl.style.transform = 'scaleX(1)';
+        clearTimeout(cycleTimer);
+        cycleTimer = setTimeout(nextCycle, BASE_BEAT_MS);
+      }
     }
 
     function losePoint(reason = 'miss') {
@@ -1118,19 +1139,21 @@
       checkpointScore = 0;
       continueUsed = false;
       canContinue = false;
+      openingGreenWaiting = false;
       playing = true;
       scoreEl.textContent = '0';
       lifeEls.forEach(life => life.classList.remove('lost'));
       card.classList.remove('game-over');
       overlay.classList.add('hidden');
       tone(420, .08);
-      gameStartedAt = performance.now();
+      gameStartedAt = 0;
       roundLength = BASE_BEAT_MS;
-      cycleTimer = setTimeout(nextCycle, 280);
+      spawnOpeningGreen();
     }
 
     function gameOver() {
       playing = false;
+      openingGreenWaiting = false;
       clearTimeout(cycleTimer);
       clearTimeout(checkpointTimer);
       cancelAnimationFrame(raf);
@@ -1162,7 +1185,8 @@
         cancelAnimationFrame(raf);
         clearBoardTargets();
       } else if (!document.hidden && playing) {
-        if (checkpointLevel >= 3 && !rockUnlocked) spawnTutorialRock();
+        if (openingGreenWaiting) spawnOpeningGreen();
+        else if (checkpointLevel >= 3 && !rockUnlocked) spawnTutorialRock();
         else if (checkpointLevel >= 2 && !yellowUnlocked) spawnTutorialYellow();
         else if (checkpointLevel === 1 && !blueUnlocked) spawnTutorialBlue();
         else nextCycle();
@@ -1184,7 +1208,8 @@
         blue: [...blueCells.entries()].map(([index, value]) => ({ index, direction: value.direction, tutorial: value.tutorial })),
         yellow: [...yellowCells.entries()].map(([index, value]) => ({ index, tutorial: value.tutorial, holding: value.holding })),
         rock: [...rockCells.entries()].map(([index, value]) => ({ index, tutorial: value.tutorial, hits: value.hits })),
-        elapsed: performance.now() - gameStartedAt, roundLength,
+        elapsed: gameStartedAt ? performance.now() - gameStartedAt : 0, roundLength,
+        openingGreenWaiting,
         checkpointReached, checkpointLevel, blueUnlocked, yellowUnlocked, rockUnlocked, tutorialActive,
         phase2Age: phase2StartedAt ? performance.now() - phase2StartedAt : 0,
         phase3Age: phase3StartedAt ? performance.now() - phase3StartedAt : 0,
